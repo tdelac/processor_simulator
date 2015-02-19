@@ -1,0 +1,26 @@
+# Compiled source #
+###################
+*.o
+*.so
+*.s
+
+# Folders #
+###########
+trace_files/
+bin/
+
+# Scripts #
+###########
+*.sh
+
+# Temp files #
+##############
+tmp.*
+old.*
+
+# Logs or output files #
+########################
+out*
+log*
+*.pdf
+*.csv
