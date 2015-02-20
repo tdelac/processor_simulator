@@ -160,6 +160,30 @@ void print_counter(char * arr, int n){
   }
 }
 
+/* For a 2bit entry choose table, given length*/
+void print_choose(char * arr, int n){
+  int  i = 0;
+  char val;
+
+  for(i = 0; i < N_ELEMS(n); ++i){
+    val = get_counter(arr, i);
+    switch (val){
+      case STRONGLY_BIMOD:
+        printf("B");
+        break;
+      case WEAKLY_BIMOD:
+        printf("b");
+        break;
+      case WEAKLY_GSHARE:
+        printf("g");
+        break;
+      case STRONGLY_GSHARE:
+        printf("G");
+        break;
+    }
+  }
+}
+
 /* For gshare history value */
 void print_history(int64_t history, int n2){
   int i = 0;
@@ -173,16 +197,17 @@ void print_history(int64_t history, int n2){
 }
 
 void print_predictions(char TNnotBranch, int8_t result, int64_t instructionAddress,
-  int64_t mispredicted, int64_t gshare_history, char * table, int n){
+  int64_t mispredicted, int64_t gshare_history, char * table, int history_n, 
+  int table_n){
   
   if (!debug) return;
 
   printf("--------------------------------------------------------\n");
 
-  print_counter(table, n);
+  print_counter(table, table_n);
   if (gshare_history) {
     printf(" ");
-    print_history(gshare_history, n);
+    print_history(gshare_history, history_n);
   }
 
   if (result) {
@@ -205,7 +230,7 @@ void print_predictions(char TNnotBranch, int8_t result, int64_t instructionAddre
 // Main Loop
 // -----------------------------------------------------------------
 
-void simulate(int bimod_n, int gshare_n, int history, int choose_n)
+void simulate(int bimod_n, int gshare_n, int history_n, int choose_n)
 {
   // See the documentation to understand what these variables mean.
   int32_t microOpCount;
@@ -227,13 +252,14 @@ void simulate(int bimod_n, int gshare_n, int history, int choose_n)
   int64_t totalMacroops = 0;
 
   // Added variable bindings
-  size_t  i;
-  int8_t  result;
+  int8_t  bimod_result,
+          gshare_result;
   int64_t mispredicted_static = 0,
           mispredicted_bimod = 0,
           mispredicted_gshare = 0,
+          mispredicted_tourney = 0,
           total_branches = 0;
-  char    val_bimod, val_gshare;
+  char    val_bimod, val_gshare, val_choose;
   int64_t gshare_history = 0; 
 
   /* Initialize branch prediction tables */
@@ -294,17 +320,18 @@ void simulate(int bimod_n, int gshare_n, int history, int choose_n)
       if (TNnotBranch == 'N') mispredicted_static++;
 
       // Bimodal prediction
-      val_bimod = get_counter(bimod_table, instructionAddress % N_ELEMS(bimod_n)); 
-      result    = is_mispredicted(TNnotBranch, bimod_table, val_bimod);
+      val_bimod   = get_counter(bimod_table, instructionAddress % N_ELEMS(bimod_n)); 
+      bimod_result = is_mispredicted(TNnotBranch, bimod_table, val_bimod);
       
-      if (result) {mispredicted_bimod++;}
+      if (bimod_result) {mispredicted_bimod++;}
       print_predictions(
           TNnotBranch, 
-          result, 
+          bimod_result, 
           instructionAddress, 
           mispredicted_bimod, 
           0,
           bimod_table,
+          history_n,
           bimod_n
       );
 
@@ -315,26 +342,73 @@ void simulate(int bimod_n, int gshare_n, int history, int choose_n)
       }
 
       // Gshare prediction
-      val_gshare = get_counter(gshare_table, (instructionAddress ^ gshare_history) % N_ELEMS(gshare_n)); 
-      result     = is_mispredicted(TNnotBranch, gshare_table, val_gshare);
+      val_gshare  = get_counter(gshare_table, (instructionAddress ^ gshare_history) % N_ELEMS(gshare_n)); 
+      gshare_result = is_mispredicted(TNnotBranch, gshare_table, val_gshare);
 
-      if (result) {mispredicted_gshare++;}
+      if (gshare_result) {mispredicted_gshare++;}
       print_predictions(
           TNnotBranch, 
-          result, 
+          gshare_result, 
           instructionAddress, 
           mispredicted_gshare, 
           gshare_history,
           gshare_table,
+          history_n,
           gshare_n
       );
 
       if (TNnotBranch == 'T'){
         inc_counter(gshare_table, (instructionAddress ^ gshare_history) % N_ELEMS(gshare_n));
-        gshare_history = ((gshare_history << 1) % N_ELEMS(history)) | 0x1; 
+        gshare_history = ((gshare_history << 1) % N_ELEMS(history_n)) | 0x1; 
       } else {
         dec_counter(gshare_table, (instructionAddress ^ gshare_history) % N_ELEMS(gshare_n));
-        gshare_history = (gshare_history << 1) % N_ELEMS(history); 
+        gshare_history = (gshare_history << 1) % N_ELEMS(history_n); 
+      }
+
+      // Tournament prediction
+     /* 
+      print_choose(choose_table, choose_n);
+      printf(" ");
+      print_counter(bimod_table, bimod_n);
+      printf(" ");*/
+      val_choose = get_counter(choose_table, instructionAddress % N_ELEMS(choose_n));
+      switch (val_choose) {
+        case STRONGLY_BIMOD:
+        case WEAKLY_BIMOD:
+          if (bimod_result) {mispredicted_tourney++;}
+          print_predictions(
+              TNnotBranch,
+              bimod_result,
+              instructionAddress,
+              mispredicted_tourney,
+              gshare_history,
+              gshare_table,
+              history_n,
+              gshare_n
+          );
+          break;
+        case WEAKLY_GSHARE:
+        case STRONGLY_GSHARE:
+          if (gshare_result) {mispredicted_tourney++;}
+          print_predictions(
+              TNnotBranch,
+              gshare_result,
+              instructionAddress,
+              mispredicted_tourney,
+              gshare_history,
+              gshare_table,
+              history_n,
+              gshare_n
+          );
+          break;
+      }
+
+      if (bimod_result != gshare_result) {
+        if (!bimod_result) {
+          dec_counter(choose_table, instructionAddress % N_ELEMS(choose_n));
+        } else {
+          inc_counter(choose_table, instructionAddress % N_ELEMS(choose_n));
+        }
       }
     }
   }
@@ -348,20 +422,24 @@ void simulate(int bimod_n, int gshare_n, int history, int choose_n)
   fprintf(outputFile, "Static misprediction rate: %f\n", (mispredicted_static + 0.0) / total_branches); 
   fprintf(outputFile, "Bimodal misprediction rate: %f\n", (mispredicted_bimod + 0.0) / total_branches); 
   fprintf(outputFile, "Gshare misprediction rate: %f\n", (mispredicted_gshare + 0.0) / total_branches); 
+  fprintf(outputFile, "Tournament misprediction rate: %f\n", (mispredicted_tourney + 0.0) / total_branches); 
+  fprintf(outputFile, "Tournament misprediction num: %d\n", (mispredicted_tourney)); 
 }
 
 int main(int argc, char *argv[]) 
 {
-  int bimod_n = 2, gshare_n = 2, history = 2, choose_n = 2;
+  int bimod_n = 2, gshare_n = 2, history_n = 2, choose_n = 2;
 
   inputFile  = stdin;
   outputFile = stdout;
-  
-  if (argc >=2) bimod_n  = atoi(argv[1]);
-  if (argc >=3) gshare_n = atoi(argv[2]);
-  if (argc >=4) history  = atoi(argv[3]);
-  if (argc >=5) choose_n = atoi(argv[4]);
 
-  simulate(bimod_n, gshare_n, history, choose_n);
+  if (argc >=2) bimod_n   = atoi(argv[1]);
+  if (argc >=3) gshare_n  = atoi(argv[2]);
+  if (argc >=4) history_n = atoi(argv[3]);
+  if (argc >=5) choose_n  = atoi(argv[4]);
+
+  printf("%d, %d, %d, %d\n", bimod_n, gshare_n, history_n, choose_n);
+  
+  simulate(bimod_n, gshare_n, history_n, choose_n);
   return 0;
 }

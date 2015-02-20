@@ -11,7 +11,7 @@ $(SRCS):
 	$(CC) $(CFLAGS) -c $*.c
 
 simulator: $(OBJS)
-	$(CC) $(LDFLAGS) $(LIBS) -o simulator $(OBJS) -lm
+	$(CC) $(LDFLAGS) $(LIBS) -o bin/simulator $(OBJS) -lm
 
 clean:
-	rm -rf simulator.o simulator
+	rm -rf simulator.o bin/simulator
